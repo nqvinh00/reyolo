@@ -1,5 +1,7 @@
 import torch
+from torch.autograd import Variable
 import numpy as np
+import cv2
 
 
 def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
@@ -47,3 +49,13 @@ def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
     predict[:, :, :4] *= stride
 
     return predict
+
+
+def test_input(file_path, img_size):
+    img = cv2.imread(file_path)
+    img = cv2.resize(img, img_size)
+    img_result = img[:, :, ::-1].transpose((2, 0, 1))     # BGR -> RGB
+    img_result = img_result[np.newaxis, :, :, :]/255.0    # Add a channel at 0
+    img_result = torch.from_numpy(img_result).float()     # Convert to float
+    img_result = Variable(img_result)                     # Convert to Variable
+    return img_result

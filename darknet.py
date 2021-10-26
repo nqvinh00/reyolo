@@ -3,19 +3,17 @@ from __future__ import division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 import numpy as np
 import pytorch_lightning as pl
-import cv2
 
 from .module import *
 from .helpers import *
 
 
 class Darknet(pl.LightningModule):
-    def __init__(self, cfgfile):
+    def __init__(self, cfg_file):
         super(Darknet, self).__init__()
-        self.blocks = parse_cfg(cfgfile)
+        self.blocks = parse_cfg(cfg_file)
         self.net, self.module_list = create_modules(self.blocks)
 
     def forward(self, x, CUDA):
@@ -65,6 +63,84 @@ class Darknet(pl.LightningModule):
 
         return detections
 
+    def load_weight(self, file_path):
+        file = open(file_path, "rb")
+
+        # first 5 items in weight file are header information
+        # major ver, minor ver, subversion, images seen by the network
+        header = np.fromfile(file, dtype=np.int32, count=5)
+        self.header = torch.from_numpy(header)
+        self.network_seen = self.header[3]
+        weights = np.fromfile(file, dtype=np.float32)
+
+        n = 0
+        for i in range(len(self.module_list)):
+            module_type = self.blocks[i + 1]["type"]
+            # if not convolutional, ignore
+            if module_type == "convolutional":
+                module = self.module_list[i]
+                try:
+                    batch_normalize = int(
+                        self.blocks[i + 1]["batch_normalize"])
+                except:
+                    batch_normalize = 0
+
+                convol_layer = module[0]
+                if batch_normalize:
+                    batch_norm_layer = module[1]
+                    num_biases = batch_norm_layer.bias.numel()
+
+                    # load weights
+                    bnl_biases = torch.from_numpy(weights[n: n + num_biases])
+                    n += num_biases
+
+                    bnl_weights = torch.from_numpy(weights[n: n + num_biases])
+                    n += num_biases
+
+                    bnl_running_mean = torch.from_numpy(
+                        weights[n: n + num_biases])
+                    n += num_biases
+
+                    bnl_running_var = torch.from_numpy(
+                        weights[n: n + num_biases])
+                    n += num_biases
+
+                    # cast weights into dimensions of model weights
+                    bnl_biases = bnl_biases.view_as(batch_norm_layer.bias.data)
+                    bnl_weights = bnl_weights.view_as(
+                        batch_norm_layer.weight.data)
+                    bnl_running_mean = bnl_running_mean.view_as(
+                        batch_norm_layer.running_mean)
+                    bnl_running_var = bnl_running_var.view_as(
+                        batch_norm_layer.running_var)
+
+                    # copy data to model
+                    batch_norm_layer.bias.data.copy_(bnl_biases)
+                    batch_norm_layer.weight.data.copy_(bnl_weights)
+                    batch_norm_layer.running_mean.copy_(bnl_running_mean)
+                    batch_norm_layer.running_var.copy_(bnl_running_var)
+                else:
+                    num_biases = convol_layer.bias.numel()
+
+                    # load weights
+                    convol_biases = torch.from_numpy(
+                        weights[n: n + num_biases])
+                    n += num_biases
+
+                    # cast weights into dimensions of model weights
+                    convol_biases = convol_biases.view_as(
+                        convol_layer.bias.data)
+
+                    # copy data to model
+                    convol_layer.bias.data.copy_(convol_biases)
+
+                num_weights = convol_layer.weight.numel()
+                convol_weights = torch.from_numpy(weights[n: n + num_weights])
+                n += num_weights
+                convol_weights = convol_weights.view_as(
+                    convol_layer.weight.data)
+                convol_layer.weight.data.copy_(convol_weights)
+
 
 def parse_cfg(file):
     """
@@ -82,13 +158,13 @@ def parse_cfg(file):
     blocks = []
 
     for l in lines:
-        if l[0] == "[":                   # Check for new block
-            if len(b) != 0:               # Check if block not empty
+        if l[0] == "[":                 # Check for new block
+            if len(b) != 0:             # Check if block not empty
                 blocks.append(b)
                 b = {}
             b["type"] = l[1:-1].rstrip()
         else:
-            key, value = l.split("=")     # get key-value from line
+            key, value = l.split("=")   # get key-value from line
             b[key.rstrip()] = value.lstrip()
 
     blocks.append(b)
@@ -206,13 +282,3 @@ def create_modules(blocks):
         in_channels = filters
         output_filters.append(filters)
     return (net, modules)
-
-
-def test_input(file_path, img_size):
-    img = cv2.imread(file_path)
-    img = cv2.resize(img, img_size)
-    img_result = img[:, :, ::-1].transpose((2, 0, 1))     # BGR -> RGB
-    img_result = img_result[np.newaxis, :, :, :]/255.0    # Add a channel at 0
-    img_result = torch.from_numpy(img_result).float()     # Convert to float
-    img_result = Variable(img_result)                     # Convert to Variable
-    return img_result
