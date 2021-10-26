@@ -6,16 +6,17 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import pytorch_lightning as pl
+import cv2
 
-from helpers import predict_transform
-from .module import EmptyLayer, DetectionLayer
+from .module import *
+from .helpers import *
 
 
 class Darknet(pl.LightningModule):
-    def __init__(self, config_file):
+    def __init__(self, cfgfile):
         super(Darknet, self).__init__()
-        self.blocks = parse_cfg(config_file)
-        self.info, self.modules = create_modules(self.blocks)
+        self.blocks = parse_cfg(cfgfile)
+        self.net, self.module_list = create_modules(self.blocks)
 
     def forward(self, x, CUDA):
         modules = self.blocks[1:]
@@ -24,42 +25,45 @@ class Darknet(pl.LightningModule):
 
         for i, module in enumerate(modules):
             module_type = (module["type"])
-            if module_type == "convolutional" or module_type == "unsample":
-                x = self.modules[i](x)
+
+            if module_type == "convolutional" or module_type == "upsample" or module_type == "maxpool":
+                x = self.module_list[i](x)
             elif module_type == "route":
                 layers = module["layers"]
-                layers = [int(l) for l in layers]
+                layers = [int(a) for a in layers]
 
                 if layers[0] > 0:
-                    layers[0] = layers[0] - i
+                    layers[0] -= i
 
                 if len(layers) == 1:
                     x = outputs[i + layers[0]]
                 else:
                     if layers[1] > 0:
-                        layers[1] = layers[1] - i
+                        layers[1] -= i
 
                     map1 = outputs[i + layers[0]]
                     map2 = outputs[i + layers[1]]
                     x = torch.cat((map1, map2), 1)
             elif module_type == "shortcut":
-                f = int(module["from"])
-                x = outputs[i - 1] + outputs[i + f]
-            elif module_type == "yolo":
-                anchors = self.modules[i][0].anchors
-                input_dim = int(self.info["height"])    # input dimensions
-                num_classes = int(module["classes"])    # number of classes
+                from_ = int(module["from"])
+                x = outputs[i-1] + outputs[i+from_]
+            elif module_type == 'yolo':
+                anchors = self.module_list[i][0].anchors    # anchors
+                input_dim = int(self.net["height"])       # input dimension
+                num_classes = int(module["classes"])
 
+                # transform
                 x = x.data
                 x = predict_transform(x, input_dim, anchors, num_classes, CUDA)
                 if not check:
-                    detect = x
+                    detections = x
                     check = 1
                 else:
-                    detect = torch.cat((detect, x), 1)
+                    detections = torch.cat((detections, x), 1)
 
             outputs[i] = x
-        return detect
+
+        return detections
 
 
 def parse_cfg(file):
@@ -78,13 +82,13 @@ def parse_cfg(file):
     blocks = []
 
     for l in lines:
-        if l[0] == "[":                 # Check for new block
+        if l[0] == "[":                   # Check for new block
             if len(b) != 0:               # Check if block not empty
                 blocks.append(b)
                 b = {}
             b["type"] = l[1:-1].rstrip()
         else:
-            key, value = l.split("=")  # get key-value from line
+            key, value = l.split("=")     # get key-value from line
             b[key.rstrip()] = value.lstrip()
 
     blocks.append(b)
@@ -92,7 +96,8 @@ def parse_cfg(file):
 
 
 def create_modules(blocks):
-    info = blocks[0]                  # info about the input and pre-processing
+    # net info about the input and pre-processing
+    net = blocks[0]
     modules = nn.ModuleList()
     in_channels = 3
     output_filters = []
@@ -110,11 +115,11 @@ def create_modules(blocks):
                 bias = True
 
             filters = int(x["filters"])
-            pad = int(x["pad"])
+            padding = int(x["pad"])
             kernel_size = int(x["size"])
             stride = int(x["stride"])
 
-            if pad:
+            if padding:
                 pad = (kernel_size - 1) // 2
             else:
                 pad = 0
@@ -138,7 +143,29 @@ def create_modules(blocks):
             if activation == "leaky":      # linear or leaky relu for yolo
                 leaky_layer = nn.LeakyReLU(0.1, inplace=True)
                 module.add_module("leaky_{}".format(i), leaky_layer)
-        elif x["type"] == "route":        # if route layer
+        # maxpool layers
+        elif x["type"] == "maxpool":
+            kernel_size = int(x["size"])
+            stride = int(x["stride"])
+
+            maxpool = nn.MaxPool2d(
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=int((kernel_size - 1) // 2)
+            )
+
+            if kernel_size == 2 and stride == 1:
+                module.add_module('ZeroPad2d', nn.ZeroPad2d((0, 1, 0, 1)))
+                module.add_module('MaxPool2d', maxpool)
+            else:
+                module = maxpool
+        # unsample layers
+        elif (x["type"] == "upsample"):
+            stride = int(x["stride"])
+            upsample = nn.Upsample(scale_factor=2, mode="nearest")
+            module.add_module("upsample_{}".format(i), upsample)
+        # route layer
+        elif x["type"] == "route":
             x["layers"] = x["layers"].split(",")
             start = int(x["layers"][0])
             try:
@@ -156,12 +183,13 @@ def create_modules(blocks):
             if end < 0:
                 filters = output_filters[i + start] + output_filters[i + end]
             else:
-                print(i, start, len(output_filters))
                 filters = output_filters[i + start]
-        elif x["type"] == "shortcut":     # shortcut
+        # shortcut
+        elif x["type"] == "shortcut":
             shortcut = EmptyLayer()
             module.add_module("shortcut_{}".format(i), shortcut)
-        elif x["type"] == "yolo":         # yolo
+        # yolo: detection layer
+        elif x["type"] == "yolo":
             mask = x["mask"].split(",")
             mask = [int(m) for m in mask]
 
@@ -175,7 +203,16 @@ def create_modules(blocks):
             module.add_module("Detection_{}".format(i), detection)
 
         modules.append(module)
-        pre_filters = filters
+        in_channels = filters
         output_filters.append(filters)
+    return (net, modules)
 
-    return (info, modules)
+
+def test_input(file_path, img_size):
+    img = cv2.imread(file_path)
+    img = cv2.resize(img, img_size)
+    img_result = img[:, :, ::-1].transpose((2, 0, 1))     # BGR -> RGB
+    img_result = img_result[np.newaxis, :, :, :]/255.0    # Add a channel at 0
+    img_result = torch.from_numpy(img_result).float()     # Convert to float
+    img_result = Variable(img_result)                     # Convert to Variable
+    return img_result
