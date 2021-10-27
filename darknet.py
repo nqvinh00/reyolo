@@ -17,7 +17,11 @@ class Darknet(pl.LightningModule):
         self.net, self.module_list = create_modules(self.blocks)
 
     def forward(self, x, CUDA):
-        modules = self.blocks[1:]
+        """
+        Calculate the output
+        Transform the output detection feature maps in a vay can be processed easier
+        """
+        modules = self.blocks[1:]  # skip first element of blocks, which is net info
         outputs = {}
         check = 0
 
@@ -43,12 +47,12 @@ class Darknet(pl.LightningModule):
                     map2 = outputs[i + layers[1]]
                     x = torch.cat((map1, map2), 1)
             elif module_type == "shortcut":
-                from_ = int(module["from"])
-                x = outputs[i-1] + outputs[i+from_]
+                f = int(module["from"])
+                x = outputs[i - 1] + outputs[i + f]
             elif module_type == 'yolo':
-                anchors = self.module_list[i][0].anchors    # anchors
+                anchors = self.module_list[i][0].anchors   # anchors
                 input_dim = int(self.net["height"])       # input dimension
-                num_classes = int(module["classes"])
+                num_classes = int(module["classes"])      # number of classes
 
                 # transform
                 x = x.data
@@ -86,6 +90,8 @@ class Darknet(pl.LightningModule):
                     batch_normalize = 0
 
                 convol_layer = module[0]
+
+                # batch normalize layer
                 if batch_normalize:
                     batch_norm_layer = module[1]
                     num_biases = batch_norm_layer.bias.numel()
@@ -119,7 +125,7 @@ class Darknet(pl.LightningModule):
                     batch_norm_layer.weight.data.copy_(bnl_weights)
                     batch_norm_layer.running_mean.copy_(bnl_running_mean)
                     batch_norm_layer.running_var.copy_(bnl_running_var)
-                else:
+                else:     # convolutional layer
                     num_biases = convol_layer.bias.numel()
 
                     # load weights
@@ -134,6 +140,7 @@ class Darknet(pl.LightningModule):
                     # copy data to model
                     convol_layer.bias.data.copy_(convol_biases)
 
+                # weights of convolutional layerss
                 num_weights = convol_layer.weight.numel()
                 convol_weights = torch.from_numpy(weights[n: n + num_weights])
                 n += num_weights
@@ -158,13 +165,13 @@ def parse_cfg(file):
     blocks = []
 
     for l in lines:
-        if l[0] == "[":                 # Check for new block
-            if len(b) != 0:             # Check if block not empty
+        if l[0] == "[":                   # Check for new block
+            if len(b) != 0:               # Check if block not empty
                 blocks.append(b)
                 b = {}
-            b["type"] = l[1:-1].rstrip()
+            b["type"] = l[1: -1].rstrip()
         else:
-            key, value = l.split("=")   # get key-value from line
+            key, value = l.split("=")     # get key-value from line
             b[key.rstrip()] = value.lstrip()
 
     blocks.append(b)
@@ -180,8 +187,12 @@ def create_modules(blocks):
 
     for i, x in enumerate(blocks[1:]):
         module = nn.Sequential()
+        module_type = x["type"]
 
-        if x["type"] == "convolutional":  # check type of block
+        # check type of block
+        # create new module for block
+        # append to module list (modules variable)
+        if module_type == "convolutional":
             activation = x["activation"]
             try:
                 batch_normalize = int(x["batch_normalize"])
@@ -220,7 +231,7 @@ def create_modules(blocks):
                 leaky_layer = nn.LeakyReLU(0.1, inplace=True)
                 module.add_module("leaky_{}".format(i), leaky_layer)
         # maxpool layers
-        elif x["type"] == "maxpool":
+        elif module_type == "maxpool":
             kernel_size = int(x["size"])
             stride = int(x["stride"])
 
@@ -236,12 +247,12 @@ def create_modules(blocks):
             else:
                 module = maxpool
         # unsample layers
-        elif (x["type"] == "upsample"):
+        elif module_type == "upsample":
             stride = int(x["stride"])
             upsample = nn.Upsample(scale_factor=2, mode="nearest")
             module.add_module("upsample_{}".format(i), upsample)
         # route layer
-        elif x["type"] == "route":
+        elif module_type == "route":
             x["layers"] = x["layers"].split(",")
             start = int(x["layers"][0])
             try:
@@ -261,17 +272,17 @@ def create_modules(blocks):
             else:
                 filters = output_filters[i + start]
         # shortcut
-        elif x["type"] == "shortcut":
+        elif module_type == "shortcut":
             shortcut = EmptyLayer()
             module.add_module("shortcut_{}".format(i), shortcut)
         # yolo: detection layer
-        elif x["type"] == "yolo":
+        elif module_type == "yolo":
             mask = x["mask"].split(",")
             mask = [int(m) for m in mask]
 
             anchors = x["anchors"].split(",")
             anchors = [int(a) for a in anchors]
-            anchors = [(anchors[i], anchors[i+1])
+            anchors = [(anchors[i], anchors[i + 1])
                        for i in range(0, len(anchors), 2)]
             anchors = [anchors[m] for m in mask]
 
@@ -281,4 +292,5 @@ def create_modules(blocks):
         modules.append(module)
         in_channels = filters
         output_filters.append(filters)
+
     return (net, modules)
