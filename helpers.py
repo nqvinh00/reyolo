@@ -81,3 +81,120 @@ def get_result(prediction, confidence, num_classses, nms_conf=0.4):
     box[:, :, 2] = prediction[:, :, 0] + prediction[:, :, 2] / 2
     box[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
     prediction[:, :, :4] = box[:, :, :4]
+
+    batchsize = predicion.size(0)
+    check = False
+
+    # the number of true detections in every image may be different
+    # confidence thresholding and nms has to be done for one image at conce
+    # must loop over the 1st dimension of prediction
+    for i in range(batch_size):
+        image_prediction = prediction[i]      # image tensor
+
+        # each bounding box has 85 attri
+        # 80 attri are class scores
+        max_confidence, max_confidence_score = torch.max(
+            image_prediction[:, 5: num_classes + 5], 1)
+        max_confidence = max_confidence.float().unsqueeze(1)
+        max_confidence_score = max_confidence_score.float().unsqueeze(1)
+        image_prediction = torch.cat(
+            (image_prediction[:, :5], max_confidence, max_confidence_score), 1)
+
+        non_zero = torch.nonzero(image_prediction[:, 4])
+        try:
+            image_prediction_ = image_prediction[non_zero.squeeze(
+            ), :].view(-1, 7)
+        except:
+            continue
+
+        if image_prediction_.shape[0] == 0:
+            continue
+
+        # get various classes detected in image
+        image_classes = get_unique(image_prediction_[:, -1])
+
+        for c in image_classes:
+            # nms
+            # get detections with 1 particular class
+            class_mask = image_prediction_ * \
+                (image_prediction_[:, -1] == c).float().unsqueeze(1)
+            class_mask_index = torch.nonzero(class_mask[:, -2]).squeeze()
+            image_prediction_class = image_prediction_[
+                class_mask_index].view(-1, 7)
+
+            # sort detection
+            # confidence at top
+            confidence_sorted_index = torch.sort(
+                image_prediction_class[:, 4], descending=True)[1]
+            image_prediction_class = image_prediction_class[confidence_sorted_index]
+            index = image_prediction_class.size(0)
+
+            for idx in range(index):
+                # get ious of all boxes
+                try:
+                    ious = get_bounding_boxes_iou(image_prediction_class[idx].unsqueeze(
+                        0), image_prediction_class[idx + 1:])
+                except ValueError:
+                    break
+                except IndexError:
+                    break
+
+                # mark zero all detections iou > threshold
+                iou_mask = (ious < nms_conf).float().unsqueeze(1)
+                image_prediction_class[idx + 1:] *= iou_mask
+
+                # remove non-zero entries
+                non_zero_index = torch.nonzero(
+                    image_prediction_class[:, 4]).squeeze()
+                image_prediction_class = image_prediction_class[non_zero_index].view(
+                    -1, 7)
+
+            batch_index = image_prediction_class.new(
+                image_prediction_class.size(0), 1).fill_(i)
+            s = batch_index, image_prediction_class
+
+            if not check:
+                output = torch.cat(s, 1)
+                check = True
+            else:
+                output = torch.cat((output, torch.cat(s, 1)))
+
+    try:
+        return output
+    except:
+        return 0
+
+
+def get_unique(tensor):
+    np_tensor = tensor.cpu().numpy()
+    unique = np.unique(np_tensor)
+    unique_tensor = torch.from_numpy(unique)
+    result = tensor.new(unique_tensor.shape)
+    result.copy_(unique_tensor)
+
+    return result
+
+
+def get_bounding_boxes_iou(b1, b2):
+    """
+    Returns iou of 2 bouding boxes
+    """
+
+    # get coordinates of 2 bounding boxes
+    b1_x1, b1_y1, b1_x2, b1_y2 = b1[:, 0], b1[:, 1], b1[:, 2], b1[:, 3]
+    b2_x1, b2_y1, b2_x2, b2_y2 = b2[:, 0], b2[:, 1], b2[:, 2], b2[:, 3]
+
+    # get coordinates of overclap rectangle
+    x1 = torch.max(b1_x1, b2_x1)
+    y1 = torch.max(b1_y1, b2_y1)
+    x2 = torch.max(b1_x2, b2_x2)
+    y2 = torch.max(b1_y2, b2_y2)
+
+    # overclap area
+    area = torch.clamp(x2 - x1 + 1, min=0) * torch(y2 - y1 + 1, min=0)
+
+    # union area
+    b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
+    b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
+
+    return area / (b1_area + b2_area - area)
