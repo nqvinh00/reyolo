@@ -108,7 +108,7 @@ class Detect():
         # create batches
         left_over = 0
         if len(img_dim_list) % self.batch_size:
-            leftover = 1
+            left_over = 1
 
         if self.batch_size != 1:
             num_batches = len(image_list) // self.batch_size + left_over
@@ -131,6 +131,7 @@ class Detect():
 
             prediction = get_result(
                 prediction, self.confidence, self.num_classes, nms_conf=self.nms)
+
             end = time.time()
             if type(prediction) == int:
                 for img_num, image in enumerate(image_list[i * self.batch_size: min((i + 1) * self.batch_size, len(image_list))]):
@@ -156,7 +157,7 @@ class Detect():
                 print("{0:20s} predicted in {1:6.3f} seconds".format(
                     image.split("/")[-1], (end - start) / self.batch_size))
                 print("{0:20s} {1:s}".format(
-                    "Objects Detected:", "".join(objects)))
+                    "Objects Detected:", " ".join(objects)))
                 print("*********************************************")
 
             if self.CUDA:

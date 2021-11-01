@@ -36,8 +36,6 @@ def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
     x, y = np.meshgrid(grid, grid)
     x_offset = torch.FloatTensor(x).view(-1, 1)
     y_offset = torch.FloatTensor(y).view(-1, 1)
-    # apply anchors to dimensions of bounding box
-    anchors = torch.FloatTensor(anchors)
 
     if CUDA:
         x_offset = x_offset.cuda()
@@ -46,8 +44,16 @@ def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
 
     xy_offset = torch.cat((x_offset, y_offset), 1).repeat(
         1, len(anchors)).view(-1, 2).unsqueeze(0)
-    anchors = anchors.repeat(grid_size ** 2, 1).unsqueeze(0)
     predict[:, :, :2] += xy_offset
+
+    # apply anchors to dimensions of bounding box
+    anchors = torch.FloatTensor(anchors)
+    if CUDA:
+        anchors = anchors.cuda()
+
+    anchors = anchors.repeat(grid_size ** 2, 1).unsqueeze(0)
+
+    predict[:, :, 2: 4] = torch.exp(predict[:, :, 2: 4]) * anchors
     # apply sigmoid to class scores
     predict[:, :, 5: num_classes +
             5] = torch.sigmoid(predict[:, :, 5: num_classes + 5])
@@ -71,7 +77,7 @@ def get_result(prediction, confidence, num_classes, nms_conf=0.4):
     # object confidence thresholding
     # each bounding box having objectness score below a threshold
     # set the value of entrie row representing the bounding box to zero
-    conf_mask = (prediction[:, :, :4] > confidence).float().unsqueeze(2)
+    conf_mask = (prediction[:, :, 4] > confidence).float().unsqueeze(2)
     prediction *= conf_mask
 
     # transform center_x, center_y, height, width of box
@@ -188,8 +194,8 @@ def get_bounding_boxes_iou(b1, b2):
     # get coordinates of overclap rectangle
     x1 = torch.max(b1_x1, b2_x1)
     y1 = torch.max(b1_y1, b2_y1)
-    x2 = torch.max(b1_x2, b2_x2)
-    y2 = torch.max(b1_y2, b2_y2)
+    x2 = torch.min(b1_x2, b2_x2)
+    y2 = torch.min(b1_y2, b2_y2)
 
     # overclap area
     area = torch.clamp(x2 - x1 + 1, min=0) * torch.clamp(y2 - y1 + 1, min=0)
@@ -201,12 +207,29 @@ def get_bounding_boxes_iou(b1, b2):
     return area / (b1_area + b2_area - area)
 
 
+def resize_image(img, input_dim):
+    """
+    resize image with unchanged aspect ratio using padding
+    """
+    width, height = img.shape[1], img.shape[0]
+    w, h = input_dim
+    new_width = int(width * min(w / width, h / height))
+    new_height = int(height * min(w / width, h / height))
+    resized_image = cv2.resize(
+        img, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+
+    canvas = np.full((input_dim[1], input_dim[0], 3), 128)
+    canvas[(h - new_height) // 2: (h - new_height) // 2 + new_height,
+           (w - new_width) // 2: (w - new_width) // 2 + new_width, :] = resized_image
+    return canvas
+
+
 def pre_image(img, input_dim):
     """
     Prepare image as input for neural network
     """
 
-    img = cv2.resize(img, (input_dim, input_dim))
+    img = resize_image(img, (input_dim, input_dim))
     img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
     img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
     return img
