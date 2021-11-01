@@ -2,6 +2,7 @@ import torch
 from torch.autograd import Variable
 import numpy as np
 import cv2
+import random
 
 
 def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
@@ -66,7 +67,7 @@ def test_input(file_path, img_size):
     return img_result
 
 
-def get_result(prediction, confidence, num_classses, nms_conf=0.4):
+def get_result(prediction, confidence, num_classes, nms_conf=0.4):
     # object confidence thresholding
     # each bounding box having objectness score below a threshold
     # set the value of entrie row representing the bounding box to zero
@@ -82,7 +83,7 @@ def get_result(prediction, confidence, num_classses, nms_conf=0.4):
     box[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
     prediction[:, :, :4] = box[:, :, :4]
 
-    batchsize = predicion.size(0)
+    batch_size = prediction.size(0)
     check = False
 
     # the number of true detections in every image may be different
@@ -191,10 +192,38 @@ def get_bounding_boxes_iou(b1, b2):
     y2 = torch.max(b1_y2, b2_y2)
 
     # overclap area
-    area = torch.clamp(x2 - x1 + 1, min=0) * torch(y2 - y1 + 1, min=0)
+    area = torch.clamp(x2 - x1 + 1, min=0) * torch.clamp(y2 - y1 + 1, min=0)
 
     # union area
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
 
     return area / (b1_area + b2_area - area)
+
+
+def pre_image(img, input_dim):
+    """
+    Prepare image as input for neural network
+    """
+
+    img = cv2.resize(img, (input_dim, input_dim))
+    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    return img
+
+
+def draw_result(x, results, colors, classes):
+    t1 = tuple(x[1: 3].int())
+    t2 = tuple(x[3: 5].int())
+    img = results[int(x[0])]
+    text_font = cv2.FONT_HERSHEY_PLAIN
+    cls = int(x[-1])
+    color = random.choice(colors)
+    label = "{}".format(classes[cls])
+    cv2.rectangle(img, t1, t2, color, 1)
+    text_size = cv2.getTextSize(label, text_font, 1, 1)[0]
+    t2 = t1[0] + text_size[0] + 3, t1[1] + text_size[1] + 4
+    cv2.rectangle(img, t1, t2, color, -1)
+    text_pos = t1[0], t1[1] + text_size[1] + 4
+    cv2.putText(img, label, text_pos, text_font, 1, [255, 255, 255], 1)
+    return img
