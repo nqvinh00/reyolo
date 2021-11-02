@@ -3,17 +3,15 @@ import time
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-import numpy as np
 import cv2
 import argparse
 import os
 import os.path as osp
 import pickle as pkl
 import pandas as pd
-import random
 
 from darknet import Darknet
-from helpers import draw_result, get_result, pre_image
+from helpers import draw_result, get_result, load_dataset, pre_image
 
 
 def parse_arg():
@@ -43,13 +41,7 @@ def parse_arg():
     return args
 
 
-def load_dataset(file_path):
-    file = open(file_path, "r")
-    names = file.read().split("\n")[:-1]
-    return names
-
-
-class Detect():
+class ImageDetect():
     def __init__(self):
         args = parse_arg()
         self.images = args.images
@@ -59,7 +51,6 @@ class Detect():
         self.batch_size = int(args.bs)
         self.confidence = float(args.confidence)
         self.nms = float(args.nms)
-        self.start = 0
         self.CUDA = torch.cuda.is_available()
         self.classes = load_dataset(args.dataset)
         self.num_classes = len(self.classes)
@@ -77,7 +68,7 @@ class Detect():
 
     def get_detections(self):
         self.load_network()
-        if self.CUDA:         # if cuda available
+        if self.CUDA:           # if cuda available
             self.model.cuda()
 
         self.model.eval()       # set model in evaluation mode
@@ -213,5 +204,5 @@ class Detect():
         torch.cuda.empty_cache()
 
 
-test = Detect()
+test = ImageDetect()
 test.get_detections()

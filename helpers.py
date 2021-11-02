@@ -250,3 +250,9 @@ def draw_result(x, results, colors, classes):
     text_pos = t1[0], t1[1] + text_size[1] + 4
     cv2.putText(img, label, text_pos, text_font, 1, [255, 255, 255], 1)
     return img
+
+
+def load_dataset(file_path):
+    file = open(file_path, "r")
+    names = file.read().split("\n")[:-1]
+    return names
