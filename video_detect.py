@@ -36,6 +36,8 @@ def parse_arg():
                         default="/content/coco.names", type=str, help="Dataset file path")
     parser.add_argument("--colors", dest="colors_file",
                         default="/content/pallete", type=str, help="Colors file path")
+    parser.add_argument("--source", dest="source",
+                        default="file", type=str, help="Video source")
 
     args, unknown = parser.parse_known_args()
     return args
@@ -54,6 +56,7 @@ class VideoDetect():
         self.num_classes = len(self.classes)
         self.colors_file = args.colors_file
         self.CUDA = torch.cuda.is_available()
+        self.source = args.source
 
     def load_network(self):
         """
@@ -73,8 +76,10 @@ class VideoDetect():
         self.model.eval()     # set model in evaluation mode
 
         # get video capture from source (file/webcam)
-        cap = cv2.VideoCapture(self.video_file)
-        # cap = cv2.VideoCapture(0)   # webcam
+        if self.source == "video":
+            cap = cv2.VideoCapture(self.video_file)
+        else:
+            cap = cv2.VideoCapture(0)   # webcam
         assert cap.isOpened(), 'Cannot captutre video source'
 
         frames = 0
