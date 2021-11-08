@@ -27,26 +27,14 @@ def parse_arg():
                         default="/content/data/trainvalno5k.txt")
     parser.add_argument("--valid_path", type=str,
                         default="/content/data/5k.txt")
-    parser.add_argument(
-        "--backup", type=str, default="/content/backup/", help="Backup directory path")
     parser.add_argument("--epochs", type=int, default=300,
                         help="Number of epochs")
-    parser.add_arguemnt("--verbose", action="store_true",
-                        help="Verbose training")
     parser.add_argument("--cpus", type=int, default=8,
                         help="Number of cpu threads during batch generation")
     parser.add_argument("--pretrained_weights", type=str,
                         help="Checkpoint file path (.weights or .pth)")
-    parser.add_argument("--evaluation_interval", type=int, default=1,
-                        help="Interval of epochs between evaluations on validation set")
-    parser.add_argument("--checkpoint_interval", type=int, default=1,
-                        help="Interval of epochs between saving model weights")
     parser.add_argument("--multiscale_train",
                         action="store_true", help="Allow multi-scale training")
-    parser.add_argument("--iou", type=float, default=0.5, help="IOU threshold")
-    parser.add_argument("--confidence", type=float,
-                        default=0.1, help="Confidence threshold")
-    parser.add_argument("--nms", type=float, default=0.4, help="NMS threshold")
     parser.add_argument("--seed", type=int, default=-1)
     args, unknown = parser.parse_known_args()
     return args

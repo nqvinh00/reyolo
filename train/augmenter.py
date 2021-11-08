@@ -1,11 +1,9 @@
 import imgaug.augmenters as iaa
-from torchvision import transforms
 import torch
-import torch.nn.functional as F
 import numpy as np
-import imgaug.augmenters as iaa
 from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 import torchvision.transforms as transforms
+from dataclasses import dataclass
 
 
 def xywh2xyxy_np(x):
@@ -30,7 +28,7 @@ class ImageAugmenter(object):
         bounding_boxes = BoundingBoxesOnImage(
             [BoundingBox(*box[1:], label=box[0]) for box in boxes], shape=image.shape)
         image, bounding_boxes = self.augmentations(
-            image=image, bounding_boxes=boxes)
+            image=image, bounding_boxes=bounding_boxes)
         bounding_boxes = bounding_boxes.clip_out_of_image()
         boxes = np.zeros((len(bounding_boxes), 5))
         for i, box in enumerate(bounding_boxes):
@@ -50,7 +48,7 @@ class ImageAugmenter(object):
 
 
 class RelativeLabels(object):
-    def __init__(self, ):
+    def __init__(self):
         pass
 
     def __call__(self, data):
@@ -62,7 +60,7 @@ class RelativeLabels(object):
 
 
 class AbsoluteLabels(object):
-    def __init__(self, ):
+    def __init__(self):
         pass
 
     def __call__(self, data):
@@ -74,7 +72,7 @@ class AbsoluteLabels(object):
 
 
 class PadSquare(ImageAugmenter):
-    def __init__(self, ):
+    def __init__(self):
         self.augmentations = iaa.Sequential([
             iaa.PadToAspectRatio(
                 1.0,
@@ -83,7 +81,7 @@ class PadSquare(ImageAugmenter):
 
 
 class ToTensor(object):
-    def __init__(self, ):
+    def __init__(self):
         pass
 
     def __call__(self, data):
@@ -98,7 +96,7 @@ class ToTensor(object):
 
 
 class DefaultAugmenter(ImageAugmenter):
-    def __init__(self, ):
+    def __init__(self):
         self.augmentations = iaa.Sequential([
             iaa.Sharpen((0.0, 0.1)),
             iaa.Affine(rotate=(-0, 0), translate_percent=(-0.1, 0.1),
@@ -109,17 +107,19 @@ class DefaultAugmenter(ImageAugmenter):
         ])
 
 
-DEFAULT_TRANSFORMS = transforms.Compose([
-    AbsoluteLabels(),
-    PadSquare(),
-    RelativeLabels(),
-    ToTensor(),
-])
+@dataclass
+class Transform:
+    train = transforms.Compose([
+        AbsoluteLabels(),
+        PadSquare(),
+        RelativeLabels(),
+        ToTensor(),
+    ])
 
-AUGMENTATION_TRANSFORMS = transforms.Compose([
-    AbsoluteLabels(),
-    DefaultAugmenter(),
-    PadSquare(),
-    RelativeLabels(),
-    ToTensor(),
-])
+    val = transforms.Compose([
+        AbsoluteLabels(),
+        DefaultAugmenter(),
+        PadSquare(),
+        RelativeLabels(),
+        ToTensor(),
+    ])

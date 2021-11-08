@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-import glob
+import torch
+import random
 import os
 import warnings
 import numpy as np
@@ -10,32 +11,10 @@ from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-class ImageFolder(Dataset):
-    def __init__(self, folder_path, transform=None):
-        self.files = sorted(glob.glob("%s/*.*" % folder_path))
-        self.transform = transform
-
-    def __getitem__(self, index):
-        image_path = self.files[index % len(self.files)]
-        image = np.array(Image.open(image_path).convert("RGB"), dtype=np.uint8)
-
-        # label placeholder
-        boxes = np.zeros((1, 5))
-
-        # apply transforms
-        if self.transform:
-            image, _ = self.transform((image, boxes))
-
-        return image_path, image
-
-    def __len__(self):
-        return len(self.files)
-
-
-class ListDataset(Dataset):
-    def __init__(self, list_path, image_size, max_objects=100, multiscale=True, transform=None):
-        with open(list_path, "r") as file:
-            self.img_files = file.readlines()
+class ImageDataset(Dataset):
+    def __init__(self, images_path, image_size, max_objects=100, multiscale=True, transform=None, quick=False):
+        with open(images_path, "r") as file:
+            self.image_files = file.readlines()
         self.label_files = []
         self.image_size = image_size
         self.max_objects = max_objects
@@ -45,25 +24,26 @@ class ListDataset(Dataset):
         self.batch_count = 0
         self.transform = transform
 
-        for path in self.img_files:
+        for path in self.image_files:
             image_dir = os.path.dirname(path)
             label_dir = "labels".join(image_dir.rsplit("images", 1))
-            assert label_dir != image_dir, f"Image dir path must contain a folder named 'images'! \n'{image_dir}'"
             label_file = os.path.join(label_dir, os.path.basename(path))
-            label_file = os.splitext(label_file)[0] + ".txt"
+            label_file = os.path.splitext(label_file)[0] + ".txt"
             self.label_files.append(label_file)
 
-    def __getitem(self, index):
+    def __getitem__(self, index):
         try:
-            image_path = self.img_files[index % len(self.img_files)].rstrip()
+            image_path = self.image_files[index %
+                                          len(self.image_files)].rstrip()
             image = np.array(Image.open(
-                image_path).convert("RGB"), dtype=np.uint8)
+                image_path).convert('RGB'), dtype=np.uint8)
         except Exception:
             print(f"Cannot read image '{image_path}'.")
             return
 
         try:
-            label_path = self.label_files[index % len(self.img_files)].rstrip()
+            label_path = self.label_files[index %
+                                          len(self.image_files)].rstrip()
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 boxes = np.loadtxt(label_path).reshape(-1, 5)
@@ -75,7 +55,39 @@ class ListDataset(Dataset):
             try:
                 image, targets = self.transform((image, boxes))
             except Exception:
-                print("Cannot apply transform")
+                print("Cannot apply transform.")
                 return
 
         return image_path, image, targets
+
+    def collate_fn(self, batch):
+        self.batch_count += 1
+
+        # Drop invalid images
+        batch = [data for data in batch if data is not None]
+
+        paths, imgs, targets = list(zip(*batch))
+
+        # Selects new image size every tenth batch
+        if self.multiscale and self.batch_count % 10 == 0:
+            self.img_size = random.choice(
+                range(self.min_size, self.max_size + 1, 32))
+
+        # Resize images to input shape
+        imgs = torch.stack([resize(img, self.img_size) for img in imgs])
+
+        # Add sample index to targets
+        for i, boxes in enumerate(targets):
+            boxes[:, 0] = i
+        targets = torch.cat(targets, 0)
+
+        return paths, imgs, targets
+
+    def __len__(self):
+        return len(self.img_files)
+
+
+def resize(image, size):
+    image = F.interpolate(image.unsqueeze(0), size=size,
+                          mode="nearest").squeeze(0)
+    return image

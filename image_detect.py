@@ -1,7 +1,6 @@
 from __future__ import division
 import time
 import torch
-import torch.nn as nn
 from torch.autograd import Variable
 import cv2
 import argparse
@@ -20,22 +19,22 @@ def parse_arg():
     """
 
     parser = argparse.ArgumentParser(description="reYOLO Detection Module")
-    parser.add_argument("--images", default="test_img/dog-cycle-car.png",
-                        type=str, help="Image path or directory containing images to perform detection")
+    parser.add_argument("--images", default="/content/eagle.jpg", type=str,
+                        help="Image path or directory containing images to perform detection")
     parser.add_argument("--det", default="det", type=str,
                         help="Imgage path or directory to store detections")
     parser.add_argument("--bs", default=1, help="Batch size")
-    parser.add_argument("--confidence",
-                        default=0.5, help="Object confidence to filter predictions")
+    parser.add_argument("--confidence", default=0.5,
+                        help="Object confidence to filter predictions")
     parser.add_argument("--nms", default=0.4, help="NMS Threshold")
     parser.add_argument("--cfg", dest="cfg_file",
-                        default="cfg/yolov3.cfg", type=str, help="Config file path")
+                        default="/content/yolov3.cfg", type=str, help="Config file path")
     parser.add_argument("--weights", dest="weights_file",
-                        default="weight/yolov3.weights", type=str, help="Weights file path")
-    parser.add_argument("--dataset",
-                        default="data/coco.names", type=str, help="Dataset file path")
+                        default="/content/yolov3.weights", type=str, help="Weights file path")
+    parser.add_argument("--dataset", default="/content/coco.names",
+                        type=str, help="Dataset file path")
     parser.add_argument("--colors", dest="colors_file",
-                        default="./pallete", type=str, help="Colors file path")
+                        default="/content/pallete", type=str, help="Colors file path")
 
     args, unknown = parser.parse_known_args()
     return args

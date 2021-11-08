@@ -1,16 +1,9 @@
 from __future__ import division
 import time
 import torch
-import torch.nn as nn
 from torch.autograd import Variable
-import numpy as np
 import cv2
 import argparse
-import os
-import os.path as osp
-import pickle as pkl
-import pandas as pd
-import random
 
 from .helpers import draw_result, get_result, load_dataset, pre_image
 from .darknet import Darknet
@@ -25,19 +18,19 @@ def parse_arg():
     parser.add_argument("--video", dest="video_file", default="/content/videoplayback.mp4",
                         type=str, help="Image path or directory containing images to perform detection")
     parser.add_argument("--bs", default=1, help="Batch size")
-    parser.add_argument("--confidence",
-                        default=0.5, help="Object confidence to filter predictions")
+    parser.add_argument("--confidence", default=0.5,
+                        help="Object confidence to filter predictions")
     parser.add_argument("--nms", default=0.4, help="NMS Threshold")
     parser.add_argument("--cfg", dest="cfg_file",
                         default="/content/yolov3.cfg", type=str, help="Config file path")
     parser.add_argument("--weights", dest="weights_file",
                         default="/content/yolov3.weights", type=str, help="Weights file path")
-    parser.add_argument("--dataset",
-                        default="/content/coco.names", type=str, help="Dataset file path")
+    parser.add_argument("--dataset", default="/content/coco.names",
+                        type=str, help="Dataset file path")
     parser.add_argument("--colors", dest="colors_file",
                         default="/content/pallete", type=str, help="Colors file path")
-    parser.add_argument("--source",
-                        default="file", type=str, help="Video source")
+    parser.add_argument("--source", default="file",
+                        type=str, help="Video source")
 
     args, unknown = parser.parse_known_args()
     return args
@@ -99,8 +92,8 @@ class VideoDetect():
                 with torch.no_grad():
                     prediction = self.model(
                         Variable(image, volatile=True), self.CUDA)
-                prediction = get_result(prediction, self.confidence,
-                                        self.num_classes, nms_conf=self.nms)
+                prediction = get_result(
+                    prediction, self.confidence, self.num_classes, nms_conf=self.nms)
                 if type(prediction) == int:
                     frames += 1
                     print("FPS: {:5.4f}".format(
@@ -138,3 +131,7 @@ class VideoDetect():
                 print("FPS: {:5.2f}".format(frames / (time.time() - start)))
             else:
                 break
+
+
+test = VideoDetect()
+test.get_detections()

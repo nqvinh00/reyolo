@@ -67,6 +67,32 @@ class Darknet(pl.LightningModule):
 
         return detections
 
+    def training_step(self, batch, batch_index):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_index):
+        x, y = batch
+        logits = self(x)
+        loss = F.cross_entropy(logits, y)
+        _, prediction = torch.max(logits, dim=1)
+        self.log("val_loss", loss)
+        self.log("val_acc", (prediction == y).sum() / len(y))
+        return prediction
+
+    def configure_optimizers(self):
+        if self.net["optimizer"] in [None, "adam"]:
+            optimizer = torch.optim.Adam(
+                self.parameters(), lr=self.net["learning_rate"], weight_decay=self.net["decay"])
+        elif self.net["optimizer"] == "sgd":
+            optimizer = torch.optim.SGD(self.parameters(
+            ), lr=self.net["learning_rate"], weight_decay=self.net["decay"], momentum=self.net["momentum"])
+
+        return optimizer
+
     def load_weight(self, file_path):
         file = open(file_path, "rb")
 
