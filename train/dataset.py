@@ -2,7 +2,6 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 import torch
 import random
-import os
 import warnings
 import numpy as np
 from PIL import Image
@@ -14,22 +13,24 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 class ImageDataset(Dataset):
     def __init__(self, images_path, image_size, max_objects=100, multiscale=True, transform=None, quick=False):
         with open(images_path, "r") as file:
-            self.image_files = file.readlines()
-        self.label_files = []
+            self.image_files = [name.rstrip() for name in file.readlines()]
+
+        self.label_files = [
+            path.replace("images", "labels").replace(
+                ".png", ".txt").replace(".jpg", ".txt")
+            for path in self.image_files
+        ]
+
+        if quick:
+            self.image_files = self.image_files[:1000]
+
         self.image_size = image_size
         self.max_objects = max_objects
         self.multiscale = multiscale
-        self.min_size = self.image_size - 96
-        self.max_size = self.image_size + 96
+        self.min_size = self.image_size - 3 * 32
+        self.max_size = self.image_size + 3 * 32
         self.batch_count = 0
         self.transform = transform
-
-        for path in self.image_files:
-            image_dir = os.path.dirname(path)
-            label_dir = "labels".join(image_dir.rsplit("images", 1))
-            label_file = os.path.join(label_dir, os.path.basename(path))
-            label_file = os.path.splitext(label_file)[0] + ".txt"
-            self.label_files.append(label_file)
 
     def __getitem__(self, index):
         try:
@@ -39,7 +40,6 @@ class ImageDataset(Dataset):
                 image_path).convert('RGB'), dtype=np.uint8)
         except Exception:
             print(f"Cannot read image '{image_path}'.")
-            return
 
         try:
             label_path = self.label_files[index %
@@ -70,11 +70,11 @@ class ImageDataset(Dataset):
 
         # Selects new image size every tenth batch
         if self.multiscale and self.batch_count % 10 == 0:
-            self.img_size = random.choice(
+            self.image_size = random.choice(
                 range(self.min_size, self.max_size + 1, 32))
 
         # Resize images to input shape
-        imgs = torch.stack([resize(img, self.img_size) for img in imgs])
+        imgs = torch.stack([resize(img, self.image_size) for img in imgs])
 
         # Add sample index to targets
         for i, boxes in enumerate(targets):
@@ -84,7 +84,7 @@ class ImageDataset(Dataset):
         return paths, imgs, targets
 
     def __len__(self):
-        return len(self.img_files)
+        return len(self.image_files)
 
 
 def resize(image, size):

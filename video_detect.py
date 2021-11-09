@@ -5,8 +5,8 @@ from torch.autograd import Variable
 import cv2
 import argparse
 
-from .helpers import draw_result, get_result, load_dataset, pre_image
-from .darknet import Darknet
+from darknet import Darknet
+from helpers import draw_result, get_result, load_dataset, pre_image
 
 
 def parse_arg():
@@ -32,7 +32,7 @@ def parse_arg():
     parser.add_argument("--source", default="file",
                         type=str, help="Video source")
 
-    args, unknown = parser.parse_known_args()
+    args, _ = parser.parse_known_args()
     return args
 
 
@@ -90,8 +90,8 @@ class VideoDetect():
                     image = image.cuda()
 
                 with torch.no_grad():
-                    prediction = self.model(
-                        Variable(image, volatile=True), self.CUDA)
+                    prediction = self.model(Variable(image))
+
                 prediction = get_result(
                     prediction, self.confidence, self.num_classes, nms_conf=self.nms)
                 if type(prediction) == int:

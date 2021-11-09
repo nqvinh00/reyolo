@@ -3,9 +3,46 @@ from torch.autograd import Variable
 import numpy as np
 import cv2
 import random
+import os
+import shutil
+import fnmatch
 
 
-def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
+def save_code_files(output_path, root_path):
+    def match_patterns(include, exclude):
+        def _ignore_patterns(path, names):
+            # If current path in exclude list, ignore everything
+            if path in set(name for pattern in exclude for name in fnmatch.filter([path], pattern)):
+                return names
+            # Get initial keep list from include patterns
+            keep = set(
+                name for pattern in include for name in fnmatch.filter(names, pattern))
+            # Add subdirectories to keep list
+            keep = set(
+                list(keep) + [name for name in names if os.path.isdir(os.path.join(path, name))])
+            # Remove exclude patterns from keep list
+            keep_ex = set(
+                name for pattern in exclude for name in fnmatch.filter(keep, pattern))
+            keep = [name for name in keep if name not in keep_ex]
+            # Ignore files not in keep list
+            return set(name for name in names if name not in keep)
+
+        return _ignore_patterns
+
+    dst_dir = os.path.join(output_path, "code")
+    if os.path.exists(dst_dir):
+        shutil.rmtree(dst_dir)
+    shutil.copytree(root_path, dst_dir, ignore=match_patterns(include=['*.py', '*.data', '*.cfg'],
+                                                              exclude=['experiment*',
+                                                                       '*.idea',
+                                                                       '*__pycache__',
+                                                                       'weights',
+                                                                       'wandb',
+                                                                       'asets'
+                                                                       ]))
+
+
+def predict_transform(predict, input_dim, anchors, num_classes, CUDA=False):
     """
     Transfer input (which is output of forward()) into 2d tensor.
     Each row of the tensor corresponds to attributes of a bounding box.
@@ -40,7 +77,6 @@ def predict_transform(predict, input_dim, anchors, num_classes, CUDA=True):
     if CUDA:
         x_offset = x_offset.cuda()
         y_offset = y_offset.cuda()
-        anchors = anchors.cuda()
 
     xy_offset = torch.cat((x_offset, y_offset), 1).repeat(
         1, len(anchors)).view(-1, 2).unsqueeze(0)
@@ -256,3 +292,82 @@ def load_dataset(file_path):
     file = open(file_path, "r")
     names = file.read().split("\n")[:-1]
     return names
+
+
+def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
+    BoolTensor = torch.cuda.BoolTensor if pred_boxes.is_cuda else torch.BoolTensor
+    FloatTensor = torch.cuda.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
+
+    nB = pred_boxes.size(0)
+    nA = pred_boxes.size(1)
+    nC = pred_cls.size(-1)
+    nG = pred_boxes.size(2)
+
+    # output tensors
+    obj_mask = BoolTensor(nB, nA, nG, nG).fill_(0)
+    no_obj_mask = BoolTensor(nB, nA, nG, nG).fill_(1)
+    class_mask = FloatTensor(nB, nA, nG, nG).fill_(0)
+    iou_scores = FloatTensor(nB, nA, nG, nG).fill_(0)
+    tx = FloatTensor(nB, nA, nG, nG).fill_(0)
+    ty = FloatTensor(nB, nA, nG, nG).fill_(0)
+    tw = FloatTensor(nB, nA, nG, nG).fill_(0)
+    th = FloatTensor(nB, nA, nG, nG).fill_(0)
+    tcls = FloatTensor(nB, nA, nG, nG, nC).fill_(0)
+
+    # convert to position relative to box
+    target_boxes = target[:, 2:6] * nG
+    gxy = target_boxes[:, :2]
+    gwh = target_boxes[:, 2:]
+
+    # get anchors with best iou
+    ious = torch.stack([bounding_box_wh_iou(anchor, gwh)
+                       for anchor in anchors])
+    _, best_n = ious.max(0)
+
+    # separate target values
+    b, target_labels = target[:, :2].long().t()
+    gx, gy = gxy.t()
+    gw, gh = gwh.t()
+    gi, gj = gxy.long().t()
+
+    # masks
+    obj_mask[b, best_n, gj, gi] = 1
+    no_obj_mask[b, best_n, gj, gi] = 0
+
+    # set no obj mask to zero where iou exceeds ignore threshold
+    for i, anchor_ious in enumerate(ious.t()):
+        no_obj_mask[b[i], anchor_ious > ignore_thres, gj[i], gi[i]] = 0
+
+    # coordinates
+    tx[b, best_n, gj, gi] = gx - gx.floor()
+    ty[b, best_n, gj, gi] = gy - gy.floor()
+
+    # width and height
+    tw[b, best_n, gj, gi] = torch.log(gw / anchors[best_n][:, 0] + 1e-16)
+    th[b, best_n, gj, gi] = torch.log(gh / anchors[best_n][:, 1] + 1e-16)
+
+    # one-hot encoding of label
+    tcls[b, best_n, gj, gi, target_labels] = 1
+
+    # compute label correctness and iou at best anchor
+    class_mask[b, best_n, gj, gi] = (
+        pred_cls[b, best_n, gj, gi].argmax(-1) == target_labels).float()
+    iou_scores[b, best_n, gj, gi] = get_bounding_boxes_iou(
+        pred_boxes[b, best_n, gj, gi], target_boxes)
+
+    tconf = obj_mask.float()
+    return iou_scores, class_mask, obj_mask, no_obj_mask, tx, ty, tw, th, tcls, tconf
+
+
+def bounding_box_wh_iou(wh1, wh2):
+    wh2 = wh2.t()
+    w1, h1 = wh1[0], wh1[1]
+    w2, h2 = wh2[0], wh2[1]
+
+    area_1 = torch.min(w1, w2) * torch.min(h1, h2)
+    area_2 = (w1 * h1 + 1e-16) + w2 * h2 - area_1
+    return area_1 / area_2
+
+
+def to_cpu(tensor):
+    return tensor.detach().cpu()

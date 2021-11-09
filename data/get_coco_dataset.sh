@@ -25,4 +25,7 @@ unzip -q instances_train-val2014.zip
 paste <(awk "{print \"$PWD\"}" <5k.part) 5k.part | tr -d '\t' > 5k.txt
 paste <(awk "{print \"$PWD\"}" <trainvalno5k.part) trainvalno5k.part | tr -d '\t' > trainvalno5k.txt
 
+mv 5k.txt data/
+mv trainvalno5k.txt data/
+
 rm train2014.zip val2014.zip instances_train-val2014.zip 5k.part trainvalno5k.part

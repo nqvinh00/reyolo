@@ -28,7 +28,7 @@ def parse_arg():
                         help="Object confidence to filter predictions")
     parser.add_argument("--nms", default=0.4, help="NMS Threshold")
     parser.add_argument("--cfg", dest="cfg_file",
-                        default="/content/yolov3.cfg", type=str, help="Config file path")
+                        default="/content/yolov3-tiny.cfg", type=str, help="Config file path")
     parser.add_argument("--weights", dest="weights_file",
                         default="/content/yolov3.weights", type=str, help="Weights file path")
     parser.add_argument("--dataset", default="/content/coco.names",
@@ -36,7 +36,7 @@ def parse_arg():
     parser.add_argument("--colors", dest="colors_file",
                         default="/content/pallete", type=str, help="Colors file path")
 
-    args, unknown = parser.parse_known_args()
+    args, _ = parser.parse_known_args()
     return args
 
 
@@ -67,7 +67,7 @@ class ImageDetect():
 
     def get_detections(self):
         self.load_network()
-        if self.CUDA:           # if cuda available
+        if self.CUDA:         # if cuda available
             self.model.cuda()
 
         self.model.eval()       # set model in evaluation mode
@@ -117,7 +117,7 @@ class ImageDetect():
             if self.CUDA:
                 batch = batch.cuda()
             with torch.no_grad():
-                prediction = self.model(Variable(batch), self.CUDA)
+                prediction = self.model(Variable(batch))
 
             prediction = get_result(
                 prediction, self.confidence, self.num_classes, nms_conf=self.nms)
@@ -199,6 +199,7 @@ class ImageDetect():
         print("{:25s}: {:2.3f}".format("Drawing boxes", end - draw_time))
         print("{:25s}: {:2.3f}".format("Average time per img",
               (end - load_batch_time) / len(image_list)))
+        print("Result Folder: {}".format(self.det))
 
         torch.cuda.empty_cache()
 
