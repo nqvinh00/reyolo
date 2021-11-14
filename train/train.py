@@ -21,13 +21,13 @@ from train.dataset import ImageDataset, Transform
 def parse_arg():
     parser = argparse.ArgumentParser(description="reYOLO Training Module")
     parser.add_argument("--cfg", dest="cfg_file", type=str,
-                        default="/content/yolov3-tiny.cfg", help="Config file path")
+                        default="./cfg/yolov3-tiny.cfg", help="Config file path")
     parser.add_argument("--dataset", type=str,
-                        default="/content/coco.names", help="Dataset file path")
+                        default="./data/coco.names", help="Dataset file path")
     parser.add_argument("--train_path", type=str,
-                        default="/content/data/trainvalno5k.txt")
+                        default="./data/trainvalno5k.txt")
     parser.add_argument("--valid_path", type=str,
-                        default="/content/data/5k.txt")
+                        default="./data/5k.txt")
     parser.add_argument("--nms", default=0.4, help="NMS Threshold")
     parser.add_argument("--iou", default=0.5, help="NMS Threshold")
     parser.add_argument("--confidence", default=0.5,
@@ -36,8 +36,8 @@ def parse_arg():
                         help="Number of epochs")
     parser.add_argument("--cpus", type=int, default=0,
                         help="Number of cpu threads during batch generation")
-    parser.add_argument("--pretrained_weights", default="/content/yolov3-tiny.weights",
-                        type=str, help="Checkpoint file path (.weights or .pth)")
+    parser.add_argument("--pretrained_weights", default="./weight/yolov3-tiny.weights",
+                        type=str, help="Checkpoint file path (.weights or .pt)")
     parser.add_argument("--multiscale_train",
                         action="store_true", help="Allow multi-scale training")
     parser.add_argument("--seed", type=int, default=-1)
