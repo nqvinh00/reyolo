@@ -19,7 +19,7 @@ def parse_arg():
     """
 
     parser = argparse.ArgumentParser(description="reYOLO Detection Module")
-    parser.add_argument("--images", default="/content/eagle.jpg", type=str,
+    parser.add_argument("--images", default="./test_img/eagle.jpg", type=str,
                         help="Image path or directory containing images to perform detection")
     parser.add_argument("--det", default="det", type=str,
                         help="Imgage path or directory to store detections")
@@ -28,13 +28,13 @@ def parse_arg():
                         help="Object confidence to filter predictions")
     parser.add_argument("--nms", default=0.4, help="NMS Threshold")
     parser.add_argument("--cfg", dest="cfg_file",
-                        default="/content/yolov3-tiny.cfg", type=str, help="Config file path")
+                        default="./cfg/yolov3-tiny.cfg", type=str, help="Config file path")
     parser.add_argument("--weights", dest="weights_file",
-                        default="/content/yolov3.weights", type=str, help="Weights file path")
-    parser.add_argument("--dataset", default="/content/coco.names",
+                        default="./weight/yolov3.weights", type=str, help="Weights file path")
+    parser.add_argument("--dataset", default="./data/coco.names",
                         type=str, help="Dataset file path")
     parser.add_argument("--colors", dest="colors_file",
-                        default="/content/pallete", type=str, help="Colors file path")
+                        default="./pallete", type=str, help="Colors file path")
 
     args, _ = parser.parse_known_args()
     return args
